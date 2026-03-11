@@ -1,40 +1,151 @@
+import streamlit as st
 import google.generativeai as genai
+from PIL import Image
+from dotenv import load_dotenv
+from chat_utils import build_prompt, generate_response
+from history_utils import save_history, load_history
 
-MODEL_NAME = "gemini-2.5-flash"
+# ------------------------------------------------
+# CONFIG
+# ------------------------------------------------
 
-def build_prompt(profile, messages):
+load_dotenv()
 
-    conversation = ""
+st.set_page_config(
+    page_title="Career AI Assistant",
+    layout="wide"
+)
 
-    for msg in messages:
-        conversation += f"{msg['role']}: {msg['content']}\n"
+api = st.secrets["general"]["GOOGLE_API_KEY"]
+genai.configure(api_key=api)
 
-    prompt = f"""
-    User Profile:
-    Interests: {profile['interests']}
-    Skills: {profile['skills']}
-    Education: {profile['education']}
-    Experience: {profile['experience']}
+# ------------------------------------------------
+# SESSION INIT
+# ------------------------------------------------
 
-    Conversation History:
-    {conversation}
+if "messages" not in st.session_state:
+    st.session_state.messages = load_history()
 
-    Provide career guidance.
-    """
+if "profile" not in st.session_state:
+    st.session_state.profile = {}
 
-    return prompt
+# ------------------------------------------------
+# LOAD LOGO
+# ------------------------------------------------
 
+logo = Image.open("logo.png").resize((200,150))
 
-def generate_response(prompt):
+# ------------------------------------------------
+# SIDEBAR PROFILE
+# ------------------------------------------------
 
-    try:
+st.sidebar.image(logo)
 
-        model = genai.GenerativeModel(MODEL_NAME)
+st.sidebar.subheader("👤 Your Profile")
 
-        response = model.generate_content(prompt)
+interests = st.sidebar.text_input("Interests")
+skills = st.sidebar.text_input("Skills")
+education = st.sidebar.text_input("Education")
+experience = st.sidebar.text_input("Experience")
 
-        return response.text
+if st.sidebar.button("Save Profile"):
 
-    except Exception as e:
+    st.session_state.profile = {
+        "interests": interests,
+        "skills": skills,
+        "education": education,
+        "experience": experience
+    }
 
-        return f"Error: {e}"
+    st.sidebar.success("Profile saved!")
+
+# ------------------------------------------------
+# FLOATING CHAT STYLE
+# ------------------------------------------------
+
+st.markdown(
+"""
+<style>
+.chat-box {
+position: fixed;
+bottom: 20px;
+right: 20px;
+width: 380px;
+background-color: white;
+border-radius: 10px;
+border: 1px solid #ddd;
+padding: 10px;
+}
+</style>
+""",
+unsafe_allow_html=True
+)
+
+# ------------------------------------------------
+# CHATBOT TAB
+# ------------------------------------------------
+
+tab1, tab2 = st.tabs(["Chatbot","History"])
+
+with tab1:
+
+    st.title("🎓 AI Career Guidance Assistant")
+
+    # display previous messages
+    for msg in st.session_state.messages:
+
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    user_input = st.chat_input("Ask your career question...")
+
+    if user_input:
+
+        if not st.session_state.profile:
+
+            st.error("Please fill profile first.")
+
+        else:
+
+            st.session_state.messages.append(
+                {"role":"user","content":user_input}
+            )
+
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            prompt = build_prompt(
+                st.session_state.profile,
+                st.session_state.messages
+            )
+
+            with st.spinner("Thinking..."):
+
+                reply = generate_response(prompt)
+
+            st.session_state.messages.append(
+                {"role":"assistant","content":reply}
+            )
+
+            with st.chat_message("assistant"):
+                st.markdown(reply)
+
+            save_history(st.session_state.messages)
+
+# ------------------------------------------------
+# HISTORY TAB
+# ------------------------------------------------
+
+with tab2:
+
+    st.title("📜 Chat History")
+
+    if not st.session_state.messages:
+        st.warning("No history yet")
+
+    for msg in st.session_state.messages:
+
+        role = "User" if msg["role"] == "user" else "Assistant"
+
+        st.markdown("---")
+        st.markdown(f"**{role}:** {msg['content']}")
